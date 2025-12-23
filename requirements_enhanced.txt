@@ -1,0 +1,23 @@
+# Enhanced requirements for DocLingo with advanced PDF processing and OCR
+# Add these to your existing requirements.txt
+
+# Advanced PDF Processing (Change 3)
+pdfplumber>=0.10.0
+
+# OCR Support (Change 3) - Optional but recommended
+pytesseract>=0.3.10
+Pillow>=10.0.0
+
+# Note: Tesseract OCR engine must be installed separately:
+# - macOS: brew install tesseract
+# - Ubuntu/Debian: sudo apt-get install tesseract-ocr
+# - Windows: Download from https://github.com/UB-Mannheim/tesseract/wiki
+
+# Existing dependencies (keep these)
+deep-translator>=1.11.4
+openai>=1.0.0
+faiss-cpu>=1.7.4
+langdetect>=1.0.9
+streamlit>=1.28.0
+python-dotenv>=1.0.0
+
