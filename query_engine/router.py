@@ -137,7 +137,7 @@ class QueryRouter:
         """
         # Classify intent
         intent = self.intent_classifier.classify(query)
-        
+        print(f"Intent: {intent}")
         answer = None
         engine_used = None
         tier_used = None
@@ -145,6 +145,7 @@ class QueryRouter:
         # TRY TIER 1: Programmatic Engines
         # Note: If TIER 1 engine returns None, fall through to content-based answering
         if intent in self.tier1_mapping:
+            print(f"TIER 1: {intent}")
             engine = self.tier1_mapping[intent]
             engine_used = engine.__class__.__name__
             tier_used = "TIER 1 (Programmatic)"
@@ -182,6 +183,7 @@ class QueryRouter:
         
         # TRY TIER 2: Specialized LLM Engines
         if answer is None and self.llm_available and intent in self.tier2_mapping:
+            print(f"TIER 2: {intent}")
             engine = self.tier2_mapping[intent]
             engine_used = engine.__class__.__name__
             tier_used = "TIER 2 (Specialized LLM)"
@@ -200,6 +202,7 @@ class QueryRouter:
         
         # FALLBACK TO TIER 3: General Content Engine
         if answer is None and self.llm_available:
+            print(f"TIER 3: {intent}")
             engine_used = "ContentEngine"
             tier_used = "TIER 3 (General LLM)"
             

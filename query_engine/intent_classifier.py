@@ -471,6 +471,7 @@ class IntentClassifier:
                         r"\bsignificance of\b",
                         r"\bwhat (is|are)\b.*\b(implying|suggesting|indicating)\b",
                         r"\bimplications? (of|for)\b",
+                        r"\bwhat (is|are|does)\b.*\b(document|text|about)\b",
                     ]
                 }
             ],
@@ -1251,7 +1252,6 @@ class IntentClassifier:
                         "details about", "explain about",
                     ],
                     "patterns": [
-                        r"\bwhat (is|are|does)\b.*\b(document|text|about)\b",
                         r"\btell me about\b",
                         r"\binformation (about|on|regarding)\b",
                         r"\bcontent (of|in)\b.*\bdocument\b",
@@ -1263,62 +1263,139 @@ class IntentClassifier:
             ],
         }
     
+    # def classify(self, query: str) -> QueryIntent:
+    #     """
+    #     Classify a query into one of the defined intent categories.
+        
+    #     Args:
+    #         query: The user query string
+            
+    #     Returns:
+    #         QueryIntent: The classified intent
+    #     """
+    #     query_lower = query.lower().strip()
+        
+    #     # Score each intent
+    #     intent_scores = {}
+        
+    #     for intent, rules_list in self.patterns.items():
+    #         score = 0
+    #         negative_match = False
+            
+    #         for rules in rules_list:
+    #             # Check negative patterns first (exclude this intent if matched)
+    #             for neg_pattern in rules.get("negative_patterns", []):
+    #                 if re.search(neg_pattern, query_lower, re.IGNORECASE):
+    #                     negative_match = True
+    #                     break  # Skip this intent if negative pattern matches
+                
+    #             if negative_match:
+    #                 break  # Don't score this intent
+                
+    #             # Check keywords
+    #             for keyword in rules.get("keywords", []):
+    #                 if keyword.lower() in query_lower:
+    #                     score += 1
+                
+    #             # Check regex patterns
+    #             for pattern in rules.get("patterns", []):
+    #                 if re.search(pattern, query_lower, re.IGNORECASE):
+    #                     score += 2  # Patterns weighted higher
+            
+    #         # Only add to scores if no negative match and score > 0
+    #         if not negative_match and score > 0:
+    #             intent_scores[intent] = score
+        
+    #     # Return intent with highest score
+    #     if intent_scores:
+    #         return max(intent_scores.items(), key=lambda x: x[1])[0]
+        
+    #     # Default to general content
+    #     return QueryIntent.GENERAL_CONTENT
+
     def classify(self, query: str) -> QueryIntent:
         """
-        Classify a query into one of the defined intent categories.
-        
-        Args:
-            query: The user query string
-            
-        Returns:
-            QueryIntent: The classified intent
+        Classify a query into one of the defined intent categories
+        with detailed logging for debugging.
         """
+
         query_lower = query.lower().strip()
-        
-        # Score each intent
+        print("\n" + "=" * 60)
+        print(f"QUERY: '{query_lower}'")
+
         intent_scores = {}
-        
+
         for intent, rules_list in self.patterns.items():
+            print("\n" + "-" * 40)
+            print(f"Checking intent: {intent}")
+
             score = 0
             negative_match = False
-            
+
+            # Safety check: ensure rules_list is iterable list of dicts
+            if not isinstance(rules_list, list):
+                print(f"❌ Invalid rules format for intent {intent}: {type(rules_list)}")
+                continue
+
             for rules in rules_list:
-                # Check negative patterns first (exclude this intent if matched)
+                if not isinstance(rules, dict):
+                    print(f"❌ Skipping invalid rules entry: {rules}")
+                    continue
+
+                print(" Rules:", rules)
+
+                # 1️⃣ Check negative patterns
                 for neg_pattern in rules.get("negative_patterns", []):
                     if re.search(neg_pattern, query_lower, re.IGNORECASE):
+                        print(f"  ❌ Negative pattern matched: '{neg_pattern}'")
                         negative_match = True
-                        break  # Skip this intent if negative pattern matches
-                
+                        break
+
                 if negative_match:
-                    break  # Don't score this intent
-                
-                # Check keywords
+                    print("  ⛔ Intent disqualified due to negative pattern")
+                    break
+
+                # 2️⃣ Keyword matches (+1)
                 for keyword in rules.get("keywords", []):
                     if keyword.lower() in query_lower:
+                        print(f"  ✅ Keyword matched (+1): '{keyword}'")
                         score += 1
-                
-                # Check regex patterns
+
+                # 3️⃣ Regex pattern matches (+2)
                 for pattern in rules.get("patterns", []):
                     if re.search(pattern, query_lower, re.IGNORECASE):
-                        score += 2  # Patterns weighted higher
-            
-            # Only add to scores if no negative match and score > 0
-            if not negative_match and score > 0:
+                        print(f"  ✅ Regex matched (+2): '{pattern}'")
+                        score += 2
+
+            print(f" Final score for {intent}: {score}")
+
+            if negative_match:
+                print(f" ❌ Intent {intent} excluded (negative match)")
+                continue
+
+            if score > 0:
                 intent_scores[intent] = score
-        
-        # Return intent with highest score
+                print(f" ✅ Intent {intent} accepted with score {score}")
+            else:
+                print(f" ❌ Intent {intent} rejected (score = 0)")
+
+        print("\n" + "=" * 60)
+        print("INTENT SCORES:", intent_scores)
+
         if intent_scores:
-            return max(intent_scores.items(), key=lambda x: x[1])[0]
-        
-        # Default to general content
+            best_intent = max(intent_scores.items(), key=lambda x: x[1])[0]
+            print(f"🎯 SELECTED INTENT: {best_intent}")
+            return best_intent
+
+        print("⚠️ No intent matched — returning GENERAL_CONTENT")
         return QueryIntent.GENERAL_CONTENT
-    
-    def classify_with_confidence(self, query: str) -> Dict[str, any]:
-        """
-        Classify query and return confidence score.
         
-        Args:
-            query: The user query string
+        def classify_with_confidence(self, query: str) -> Dict[str, any]:
+            """
+            Classify query and return confidence score.
+            
+            Args:
+                query: The user query string
             
         Returns:
             Dict with intent, confidence, and top alternatives
