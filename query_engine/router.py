@@ -36,12 +36,13 @@ class QueryRouter:
     - TIER 3: General LLM (fallback for everything else)
     """
     
-    def __init__(self, openai_api_key: Optional[str] = None):
+    def __init__(self, openai_api_key: Optional[str] = None, retriever=None):
         """
         Initialize router with all engines.
         
         Args:
             openai_api_key: OpenAI API key for LLM engines
+            retriever: Optional FAISS retriever (only used by SummarizationEngine)
         """
         # Intent classifier
         self.intent_classifier = IntentClassifier()
@@ -58,16 +59,16 @@ class QueryRouter:
             try:
                 # TIER 2: Specialized LLM Engines
                 self.summarization_engine = SummarizationEngine(api_key=api_key, retriever=retriever)
-                self.interpretation_engine = InterpretationEngine(api_key=api_key, retriever=retriever)
-                self.comparison_engine = ComparisonEngine(api_key=api_key, retriever=retriever)
-                self.causation_engine = CausationEngine(api_key=api_key, retriever=retriever)
-                self.opinion_stance_engine = OpinionStanceEngine(api_key=api_key, retriever=retriever)
-                self.critical_analysis_engine = CriticalAnalysisEngine(api_key=api_key, retriever=retriever)
-                self.procedural_engine = ProceduralEngine(api_key=api_key, retriever=retriever)
-                self.contextual_engine = ContextualEngine(api_key=api_key, retriever=retriever)
+                self.interpretation_engine = InterpretationEngine(api_key=api_key)
+                self.comparison_engine = ComparisonEngine(api_key=api_key)
+                self.causation_engine = CausationEngine(api_key=api_key)
+                self.opinion_stance_engine = OpinionStanceEngine(api_key=api_key)
+                self.critical_analysis_engine = CriticalAnalysisEngine(api_key=api_key)
+                self.procedural_engine = ProceduralEngine(api_key=api_key)
+                self.contextual_engine = ContextualEngine(api_key=api_key)
                 
                 # TIER 3: General Content Engine
-                self.content_engine = ContentEngine(api_key=api_key, retriever=retriever)
+                self.content_engine = ContentEngine(api_key=api_key)
                 
                 self.llm_available = True
             except Exception as e:
