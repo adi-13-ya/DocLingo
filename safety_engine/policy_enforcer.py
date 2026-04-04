@@ -86,28 +86,31 @@ class PolicyEnforcer:
         target_language: str = "en"
     ) -> Dict[str, Any]:
         """
-        Enforce output safety checks (must be called after answer generation).
+        Non-blocking output safety checks.
+        Only rejects if zero chunks retrieved.
+        All other issues result in warnings only.
         
         Args:
             answer: Generated answer
             retrieved_chunks: Retrieved document chunks
             query: Original query
             confidence: Confidence level
+            target_language: Target language for messages
             
         Returns:
             Dictionary with:
-                - is_valid: Boolean
-                - validated_answer: Validated/cleaned answer
+                - is_valid: Boolean (False only if zero chunks)
+                - validated_answer: Answer (always returned unless zero chunks)
                 - reason: Explanation
                 - warnings: List of warnings
         """
-        # Validate answer
+        # Validate answer (non-blocking)
         validation_result = self.output_guard.validate_answer(
             answer=answer,
             retrieved_chunks=retrieved_chunks,
             query=query,
             confidence=confidence,
-            target_language=target_language  # Change 1: Pass language
+            target_language=target_language
         )
         
         # Log safety decision
@@ -118,10 +121,11 @@ class PolicyEnforcer:
             outcome="validated" if validation_result["is_valid"] else "rejected"
         )
         
-        # Use fallback if invalid
+        # Only use fallback if zero chunks (hard rejection)
         if not validation_result["is_valid"]:
             validated_answer = validation_result.get("fallback_answer") or self.output_guard.get_safe_fallback(query, target_language=target_language)
         else:
+            # Always return the original answer (non-blocking)
             validated_answer = answer
         
         return {
@@ -144,11 +148,12 @@ class PolicyEnforcer:
         query_language: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Enforce uncertainty handling (must be called before final response).
-        Refined to downgrade confidence instead of blocking for moderate cases.
+        Non-blocking uncertainty handling.
+        Only adjusts confidence levels and logs warnings.
+        Never modifies answer text.
         
         Args:
-            answer: Generated answer
+            answer: Generated answer (preserved, never modified)
             confidence: Confidence level
             num_chunks: Number of retrieved chunks
             avg_similarity: Average similarity score
@@ -159,14 +164,13 @@ class PolicyEnforcer:
             
         Returns:
             Dictionary with:
-                - final_answer: Answer with uncertainty handling applied (only for severe cases)
-                - uncertainty_applied: Boolean (True only for severe cases)
-                - confidence_downgraded: Boolean (True for moderate cases)
-                - final_confidence: Confidence level after downgrade (if applicable)
-                - uncertainty_message: Uncertainty message (if applied)
+                - final_answer: Answer (always preserved, never modified)
+                - confidence_adjusted: Boolean (True if confidence was adjusted)
+                - final_confidence: Confidence level after adjustment (if applicable)
+                - warnings: List of warning messages
         """
-        # Check if uncertainty should be forced or confidence downgraded
-        uncertainty_result = self.uncertainty_handler.should_force_uncertainty(
+        # Check if confidence should be adjusted (non-blocking)
+        uncertainty_result = self.uncertainty_handler.should_adjust_confidence(
             confidence=confidence,
             num_chunks=num_chunks,
             avg_similarity=avg_similarity,
@@ -177,38 +181,29 @@ class PolicyEnforcer:
             query_language=query_language
         )
         
-        # Apply uncertainty handling (only for severe cases)
-        if uncertainty_result.get("force_uncertainty"):
-            final_answer = self.uncertainty_handler.apply_uncertainty_response(
-                original_answer=answer,
-                uncertainty_info=uncertainty_result
-            )
-        else:
-            # Moderate cases: preserve answer, confidence will be downgraded
-            final_answer = answer
+        # Always preserve answer (never modify)
+        final_answer = answer
         
-        # Apply confidence downgrade if needed
+        # Apply confidence adjustment if needed
         final_confidence = confidence
-        if uncertainty_result.get("downgrade_confidence") and uncertainty_result.get("confidence_downgrade"):
-            final_confidence = uncertainty_result["confidence_downgrade"]
+        if uncertainty_result.get("adjust_confidence") and uncertainty_result.get("adjusted_confidence"):
+            final_confidence = uncertainty_result["adjusted_confidence"]
         
         # Convert uncertainty_result to JSON-serializable format for logging
         serializable_result = {
-            "force_uncertainty": uncertainty_result.get("force_uncertainty", False),
-            "downgrade_confidence": uncertainty_result.get("downgrade_confidence", False),
+            "adjust_confidence": uncertainty_result.get("adjust_confidence", False),
             "reason": uncertainty_result.get("reason", ""),
-            "downgrade_reasons": uncertainty_result.get("downgrade_reasons", []),
-            "confidence_downgrade": uncertainty_result.get("confidence_downgrade"),
+            "adjusted_confidence": uncertainty_result.get("adjusted_confidence"),
+            "warnings": uncertainty_result.get("warnings", []),
             "is_crosslingual": uncertainty_result.get("is_crosslingual", False),
             "similarity_threshold_used": uncertainty_result.get("similarity_threshold_used")
         }
         
         return {
-            "final_answer": final_answer,
-            "uncertainty_applied": uncertainty_result.get("force_uncertainty", False),
-            "confidence_downgraded": uncertainty_result.get("downgrade_confidence", False),
+            "final_answer": final_answer,  # Always original answer
+            "confidence_adjusted": uncertainty_result.get("adjust_confidence", False),
             "final_confidence": final_confidence,
-            "uncertainty_message": uncertainty_result.get("uncertainty_message"),
+            "warnings": uncertainty_result.get("warnings", []),
             "uncertainty_result": serializable_result
         }
     

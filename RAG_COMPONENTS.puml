@@ -1,0 +1,87 @@
+@startuml RAG Components Architecture
+!theme plain
+skinparam backgroundColor white
+skinparam componentStyle rectangle
+skinparam defaultFontSize 11
+skinparam defaultFontName Arial
+skinparam shadowing false
+
+package "Document Processing" {
+    component [PDF Loader] as PDFLoader
+    component [Text Extractor] as TextExtractor
+    component [Document Chunker] as Chunker
+    note right of Chunker
+        Chunk size: 500 chars
+        Overlap: 50 chars
+        Preserves page metadata
+    end note
+}
+
+package "Embedding Generation" {
+    component [Embedding Manager] as EmbeddingManager
+    note right of EmbeddingManager
+        Model: text-embedding-3-small
+        Dimension: 1536
+        Batch processing support
+    end note
+}
+
+package "Vector Store" {
+    component [FAISS Index] as FAISSIndex
+    note right of FAISSIndex
+        Index Type: FlatL2
+        Stores: vectors, chunks, metadata
+        Fast similarity search
+    end note
+}
+
+package "Retrieval Engine" {
+    component [FAISS Retriever] as Retriever
+    note right of Retriever
+        Semantic search
+        Top-K retrieval
+        Score threshold filtering
+        Metadata filtering
+    end note
+}
+
+package "Answer Generation" {
+    component [Answer Generator] as AnswerGenerator
+    note right of AnswerGenerator
+        Model: GPT-4o-mini
+        Document-grounded
+        Language-aware
+        Citation support
+    end note
+}
+
+package "Language Support" {
+    component [Translation Manager] as TranslationManager
+    note right of TranslationManager
+        Optional translation
+        Supports partial/full
+        Multilingual output
+    end note
+}
+
+' Data Flow
+PDFLoader --> TextExtractor : PDF → Text
+TextExtractor --> Chunker : Pages → Chunks
+Chunker --> EmbeddingManager : Chunks → Embeddings
+EmbeddingManager --> FAISSIndex : Embeddings + Metadata
+FAISSIndex --> Retriever : Indexed Vectors
+
+' Query Flow
+Retriever --> EmbeddingManager : Query → Query Embedding
+Retriever --> FAISSIndex : Search Similar Vectors
+FAISSIndex --> Retriever : Top-K Results
+Retriever --> AnswerGenerator : Retrieved Chunks
+AnswerGenerator --> AnswerGenerator : Generate Answer
+
+' Optional Translation
+Chunker ..> TranslationManager : Optional Translation
+Retriever ..> TranslationManager : Optional Translation
+
+@enduml
+
+

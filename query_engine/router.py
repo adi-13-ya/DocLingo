@@ -141,6 +141,7 @@ class QueryRouter:
         answer = None
         engine_used = None
         tier_used = None
+        engine_object = None  # Store engine object for TIER 2
         
         # TRY TIER 1: Programmatic Engines
         # Note: If TIER 1 engine returns None, fall through to content-based answering
@@ -184,27 +185,21 @@ class QueryRouter:
         # TRY TIER 2: Specialized LLM Engines
         if answer is None and self.llm_available and intent in self.tier2_mapping:
             print(f"TIER 2: {intent}")
-            engine = self.tier2_mapping[intent]
-            engine_used = engine.__class__.__name__
+            engine_object = self.tier2_mapping[intent]  # Get engine instance
+            engine_used = engine_object.__class__.__name__  # Get engine name
             tier_used = "TIER 2 (Specialized LLM)"
             
-            try:
-                # Check if engine supports answer_language parameter
-                import inspect
-                sig = inspect.signature(engine.process)
-                if 'answer_language' in sig.parameters:
-                    answer = engine.process(query, pages, relevant_chunks, answer_language=answer_language)
-                else:
-                    answer = engine.process(query, pages, relevant_chunks)
-            except Exception as e:
-                print(f"⚠️  {engine_used} failed: {e}")
-                answer = None
+            # For TIER 2, we don't generate answer here (needs FAISS retrieval first)
+            # Just mark that this is a TIER 2 query and return None answer
+            # The engine object will be stored in metadata for later use
+            answer = None
         
         # FALLBACK TO TIER 3: General Content Engine
         if answer is None and self.llm_available:
             print(f"TIER 3: {intent}")
             engine_used = "ContentEngine"
             tier_used = "TIER 3 (General LLM)"
+            engine_object = None  # No engine object for TIER 3
             
             try:
                 answer = self.content_engine.process(
@@ -212,7 +207,7 @@ class QueryRouter:
                     pages=pages,
                     relevant_chunks=relevant_chunks,
                     query_intent=intent.value,
-                    answer_language=answer_language  # Change 2: Pass answer language
+                    answer_language=answer_language
                 )
             except Exception as e:
                 print(f"⚠️  ContentEngine failed: {e}")
@@ -223,18 +218,26 @@ class QueryRouter:
             answer = "This query requires LLM processing. Please configure OpenAI API key."
             engine_used = "None"
             tier_used = "N/A"
+            engine_object = None
         
         # Prepare response
         response = {"answer": answer}
         
         if return_metadata:
-            # 🔧 FIXED: Simple explanation without calling get_explanation
-            response["metadata"] = {
+            # Build metadata with engine name
+            metadata = {
                 "intent": intent.value,
                 "engine": engine_used,
                 "tier": tier_used,
                 "explanation": f"Query classified as '{intent.value}' and routed to {engine_used}"
             }
+            
+            # For TIER 2, include the engine object for later use
+            if tier_used == "TIER 2 (Specialized LLM)" and engine_object is not None:
+                metadata["engine_object"] = engine_object
+                print(f"✅ Router: Included engine object ({engine_used}) in metadata for TIER 2")
+            
+            response["metadata"] = metadata
         
         return response
     

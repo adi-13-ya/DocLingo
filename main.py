@@ -151,7 +151,7 @@ from language_manager.language_resolver import LanguageResolver
 from retrieval_engine.retriever import FAISSRetriever
 from answer_engine.generator import generate_answer
 from answer_engine.explainer import generate_explanation
-from confidence_engine.confidence_score import compute_confidence
+from confidence_engine.confidence_score import compute_confidence, compute_grounding_score
 from decision_engine.adaptive_engine import AdaptiveDecisionEngine
 from decision_engine.strategy_optimizer import StrategyOptimizer
 from query_engine.router import QueryRouter
@@ -195,6 +195,10 @@ class DocLingoSystem:
         # Document state
         self.current_document_indexed = False
         self.current_pages = None
+        
+        # Specialized engine state (set during routing for TIER 2 queries)
+        self.specialized_engine = None
+        self.specialized_intent = None
         self.current_chunks = None
         self.document_metadata = {}
     
@@ -394,6 +398,10 @@ def run_doclingo(
     
     sanitized_query = query_safety.get("sanitized_query") or query
 
+    # Reset specialized engine state for this query
+    system.specialized_engine = None
+    system.specialized_intent = None
+
     # -----------------------------
     # 1. Load & extract document
     # -----------------------------
@@ -440,7 +448,6 @@ def run_doclingo(
     document_language = language_result["document_language"]
     query_language = language_result["query_language"]
     answer_language = language_result["answer_language"]
-    
     print(f"📋 Language resolution: {language_result['resolution_explanation']}")
     
     num_pages = len(pages)
@@ -474,6 +481,9 @@ def run_doclingo(
     # Try to route the query first - this handles metadata/aggregate queries
     # without expensive translation or retrieval
     
+    # Initialize routing_intent to None - will be set from routing result
+    routing_intent = None
+    
     try:
         routing_result = system.router.route(
             query=sanitized_query,  # Phase 5: Use sanitized query
@@ -483,39 +493,62 @@ def run_doclingo(
             answer_language=answer_language  # Change 2: Pass answer language for multilingual output
         )
         
-        # Check if a specialized engine handled the query
-        # Only early-return if router returned a non-None answer
-        # If router returns None answer, it means the query needs content-based answering
-        if routing_result.get('answer') is not None:
-            tier = routing_result['metadata'].get('tier', '')
-            if tier in ['TIER 1 (Programmatic)', 'TIER 2 (Specialized LLM)']:
-                # Query was handled by specialized engine
-                print(f"🎯 Query routed to: {routing_result['metadata']['engine']}")
-                print(f"📊 Intent detected: {routing_result['metadata']['intent']}")
-                
-                # Answer language defaults to query language (rule)
-                answer_lang = query_language
-                
-                return {
-                    "answer": routing_result['answer'],
-                    "confidence": "High",
-                    "explanation_text": f"This answer was computed directly using {routing_result['metadata']['engine']}. "
-                                       f"No translation or complex retrieval was needed.",
-                    "decision_used": {"routing_engine": routing_result['metadata']['engine']},
-                    "document_language": document_language,
-                    "query_language": query_language,
-                    "answer_language": answer_lang,  # Explicit language selection
-                    "query_intent": routing_result['metadata']['intent'],
-                    "language_resolution": language_result,  # Full language resolution info
-                    "num_chunks_used": 0,
-                    "retrieval_method": "None (Direct computation)",
-                }
+        # Extract intent from routing result to avoid re-classifying later
+        routing_intent = routing_result.get('metadata', {}).get('intent')
+        
+        # Decouple tier detection from answer presence
+        # Always read tier from metadata first
+        tier = routing_result['metadata'].get('tier', '')
+        engine_name = routing_result['metadata'].get('engine', 'ContentEngine')
+        print(f"Tier is ADITYA: {tier}")
+        # TIER 1 (Programmatic): Early return if answer is available
+        if tier == 'TIER 1 (Programmatic)' and routing_result.get('answer') is not None:
+            # Query was handled by programmatic engine (MetadataEngine, AggregateEngine, etc.)
+            print(f"🎯 Query routed to: {engine_name}")
+            print(f"📊 Intent detected: {routing_result['metadata']['intent']}")
+            
+            # Answer language defaults to query language (rule)
+            answer_lang = query_language
+            
+            return {
+                "answer": routing_result['answer'],
+                "confidence": "High",
+                "explanation_text": f"This answer was computed directly using {engine_name}. "
+                                   f"No translation or complex retrieval was needed.",
+                "decision_used": {"routing_engine": engine_name},
+                "document_language": document_language,
+                "query_language": query_language,
+                "answer_language": answer_lang,  # Explicit language selection
+                "query_intent": routing_result['metadata']['intent'],
+                "language_resolution": language_result,  # Full language resolution info
+                "num_chunks_used": 0,
+                "retrieval_method": "None (Direct computation)",
+            }
+        
+        # TIER 2 (Specialized LLM): Always set up specialized engine and continue to RAG pipeline
+        # Note: Tier-2 queries intentionally return answer=None (they need FAISS retrieval first)
+        elif tier == 'TIER 2 (Specialized LLM)':
+            print(f"🎯 Tier-2 detected ({engine_name}), continuing full pipeline with specialized prompting")
+            
+            # Extract engine object from router metadata
+            # Router always includes engine_object for TIER 2 queries
+            engine_object = routing_result['metadata'].get('engine_object')
+            if engine_object is not None:
+                system.specialized_engine = engine_object
+                system.specialized_intent = routing_result['metadata']['intent']
+                print(f"✅ Stored specialized engine object: {engine_name}")
             else:
-                # TIER 3 or unknown - continue to content-based pipeline
-                print(f"🎯 Query routed to: {routing_result['metadata'].get('engine', 'ContentEngine')}, continuing to content pipeline")
+                print(f"⚠️  Engine object not found in routing metadata for {engine_name}, will use general generator")
+            
+            # Ensure answer is None to force content pipeline
+            routing_result['answer'] = None
+        
+        # TIER 3 (General LLM) or unknown: Continue to content-based pipeline
         else:
-            # Router returned None answer (e.g., MetadataEngine couldn't handle it)
-            # Continue to content-based answering pipeline
+            if tier:
+                print(f"🎯 Query routed to: {engine_name} (Tier: {tier}), continuing to content pipeline")
+            else:
+                print(f"🎯 Query routed to: {engine_name}, continuing to content pipeline")
             print(f"🎯 Metadata engine returned None, continuing to content-based answering")
     
     except Exception as e:
@@ -524,10 +557,15 @@ def run_doclingo(
     # -----------------------------
     # 5. PHASE 4: Get feedback-optimized parameters
     # -----------------------------
-    # Classify intent for feedback-based optimization
+    # Use intent from routing result instead of re-classifying (avoids duplicate score printing)
     try:
-        intent = system.router.intent_classifier.classify(query)
-        intent_name = intent.value if hasattr(intent, 'value') else str(intent)
+        if routing_intent:
+            # Reuse intent from routing result - already classified once
+            intent_name = routing_intent
+        else:
+            # Fallback: only classify if routing didn't provide intent
+            intent = system.router.intent_classifier.classify(query)
+            intent_name = intent.value if hasattr(intent, 'value') else str(intent)
     except:
         intent_name = None
     
@@ -636,13 +674,64 @@ def run_doclingo(
     # Use sanitized query for answer generation
     answer_query = sanitized_query
     
-    # Use your existing generator with FAISS results
-    # Pass answer_language to ensure LLM generates answer in correct language
-    answer = generate_answer(
-        retrieved_chunks, 
-        answer_query,
-        answer_language=answer_language  # Change 2: Explicit language instruction
-    )
+    # Check if a specialized engine was identified during routing (TIER 2)
+    if hasattr(system, 'specialized_engine') and system.specialized_engine is not None:
+        engine_name = system.specialized_engine.__class__.__name__
+        print(f"🎯 Using specialized engine: {engine_name}")
+        
+        # Validate that the engine object has a process method
+        if not hasattr(system.specialized_engine, 'process'):
+            print(f"⚠️  Specialized engine {engine_name} does not have a process method, falling back to general generator")
+            answer = generate_answer(
+                retrieved_chunks, 
+                answer_query,
+                answer_language=answer_language
+            )
+        else:
+            try:
+                # Check if the specialized engine supports answer_language parameter
+                import inspect
+                sig = inspect.signature(system.specialized_engine.process)
+                params = sig.parameters
+                
+                # Prepare arguments for specialized engine
+                # All specialized engines expect: query, pages, relevant_chunks
+                engine_args = {
+                    'query': answer_query,
+                    'pages': processed_pages,
+                    'relevant_chunks': retrieved_chunks
+                }
+                
+                # Add answer_language if the engine supports it (e.g., SummarizationEngine)
+                if 'answer_language' in params:
+                    engine_args['answer_language'] = answer_language
+                
+                # Call the specialized engine with retrieved chunks (RAG-grounded)
+                answer = system.specialized_engine.process(**engine_args)
+                
+                if answer and len(answer.strip()) > 0:
+                    print(f"✅ Specialized engine ({engine_name}) generated answer ({len(answer)} characters)")
+                else:
+                    raise ValueError(f"Specialized engine {engine_name} returned empty answer")
+                    
+            except Exception as e:
+                print(f"⚠️  Specialized engine ({engine_name}) failed: {str(e)}")
+                print(f"   Falling back to general generator")
+                import traceback
+                traceback.print_exc()
+                # Fall back to general generator
+                answer = generate_answer(
+                    retrieved_chunks, 
+                    answer_query,
+                    answer_language=answer_language
+                )
+    else:
+        # Use general generator (default behavior for TIER 3 or when no specialized engine is set)
+        answer = generate_answer(
+            retrieved_chunks, 
+            answer_query,
+            answer_language=answer_language
+        )
     
     # DIAGNOSTIC LOG: Raw LLM output before safety checks
     print("🔍 [DIAGNOSTIC] Raw LLM answer (before safety checks):")
@@ -651,26 +740,25 @@ def run_doclingo(
     print(f"   Avg Similarity: {avg_similarity:.4f} ({avg_similarity:.2%})")
     
     # -----------------------------
-    # PHASE 5: Output Safety Check
+    # PHASE 5: Non-blocking Output Safety Check
     # -----------------------------
+    # Only rejects if zero chunks retrieved
     output_safety = system.policy_enforcer.enforce_output_safety(
         answer=answer,
         retrieved_chunks=retrieved_chunks,
         query=sanitized_query,
         confidence="Medium",  # Will be updated after confidence calculation
-        target_language=answer_language  # Pass answer language for language-aware validation
+        target_language=answer_language
     )
     
     if not output_safety["is_valid"]:
-        print("⚠️  Phase 5: Answer failed output validation, using fallback")
+        # Only case: zero chunks retrieved
+        print("⚠️  Phase 5: No chunks retrieved, using fallback message")
         print(f"   Reason: {output_safety.get('reason', 'Unknown')}")
-        if output_safety.get("validation_result", {}).get("grounding_score") is not None:
-            print(f"   Grounding score: {output_safety['validation_result']['grounding_score']:.4f}")
         answer = output_safety["validated_answer"]
     elif output_safety.get("warnings"):
+        # Soft warnings only (non-blocking)
         print(f"⚠️  Phase 5: Output safety warnings: {', '.join(output_safety['warnings'])}")
-        if output_safety.get("validation_result", {}).get("grounding_score") is not None:
-            print(f"   Grounding score: {output_safety['validation_result']['grounding_score']:.4f}")
 
     # -----------------------------
     # 11. Explainability (TEXT + META)
@@ -692,21 +780,37 @@ def run_doclingo(
     print("📋 Explanation metadata:", explanation_meta)
 
     # -----------------------------
-    # 12. Confidence scoring with Phase 4 calibration
+    # 12. Confidence scoring with grounding score integration
     # -----------------------------
-    # Enhanced confidence with FAISS scores
+    # Calculate grounding score (token-level overlap with normalization)
+    grounding_score = None
+    if retrieved_chunks and answer:
+        grounding_score = compute_grounding_score(
+            answer=answer,
+            retrieved_chunks=retrieved_chunks,
+            document_language=document_language,
+            answer_language=answer_language
+        )
+        print(f"📊 Grounding score: {grounding_score:.4f} ({grounding_score:.2%})")
+    
     # Note: avg_similarity already calculated earlier for diagnostic logging
     if not chunks_metadata:  # Safety check in case chunks_metadata is empty
         avg_similarity = 0.0
     
-    base_confidence = compute_confidence(
+    # Compute confidence with grounding score integration
+    confidence_result = compute_confidence(
         num_chunks=len(retrieved_chunks),
-        translation_strategy=translation_strategy
+        translation_strategy=translation_strategy,
+        grounding_score=grounding_score,
+        document_language=document_language,
+        answer_language=answer_language
     )
     
-    # Boost confidence if FAISS found highly similar chunks
-    if avg_similarity > 0.8:
-        base_confidence = "High" if base_confidence != "High" else base_confidence
+    base_confidence_value = confidence_result["base_confidence"]
+    confidence = confidence_result["confidence"]
+    
+    if confidence_result.get("grounding_penalty_applied"):
+        print(f"📊 Grounding penalty applied: {base_confidence_value} -> {confidence}")
     
     # Phase 4: Calibrate confidence based on feedback
     # Determine engine name (routing_result might not exist if routing was skipped)
@@ -715,7 +819,7 @@ def run_doclingo(
         engine_name = routing_result.get('metadata', {}).get('engine', 'ContentEngine')
     
     calibrated_confidence = system.confidence_calibrator.calibrate_confidence(
-        base_confidence=base_confidence,
+        base_confidence=confidence,  # Use confidence after grounding penalty
         intent=intent_name,
         engine=engine_name,
         days=30
@@ -723,36 +827,30 @@ def run_doclingo(
     
     confidence = calibrated_confidence["calibrated_confidence"]
     if calibrated_confidence.get("feedback_based"):
-        print(f"📊 Phase 4: Confidence calibrated from {base_confidence} to {confidence}")
+        print(f"📊 Phase 4: Confidence calibrated to {confidence}")
     
     # -----------------------------
-    # PHASE 5: Uncertainty Handling
+    # PHASE 5: Non-blocking Uncertainty Handling
     # -----------------------------
+    # Only adjusts confidence and logs warnings, never modifies answer
     uncertainty_result = system.policy_enforcer.enforce_uncertainty_handling(
         answer=answer,
         confidence=confidence,
         num_chunks=len(retrieved_chunks),
         avg_similarity=avg_similarity,
-        target_language=answer_language,  # Change 1: Pass language for multilingual messages
-        query_intent=intent_name,  # Pass intent to make uncertainty handler lenient for summarization
-        document_language=document_language,  # Pass for cross-lingual detection
-        query_language=query_language  # Pass for cross-lingual detection
+        target_language=answer_language,
+        query_intent=intent_name,
+        document_language=document_language,
+        query_language=query_language
     )
     
-    # Handle uncertainty result: apply severe cases or downgrade confidence
-    if uncertainty_result.get("uncertainty_applied"):
-        print(f"⚠️  Phase 5: Uncertainty handling applied (severe case): {uncertainty_result.get('uncertainty_message', '')}")
-        answer = uncertainty_result["final_answer"]
-        # Use final_confidence if provided
-        if uncertainty_result.get("final_confidence"):
-            confidence = uncertainty_result["final_confidence"]
-    elif uncertainty_result.get("confidence_downgraded"):
-        # Moderate case: downgrade confidence but preserve answer
+    # Apply confidence adjustment if needed (non-blocking)
+    if uncertainty_result.get("confidence_adjusted"):
         confidence = uncertainty_result.get("final_confidence", confidence)
-        print(f"⚠️  Phase 5: Confidence downgraded to {confidence} (moderate evidence - answer preserved)")
-        downgrade_reasons = uncertainty_result.get('uncertainty_result', {}).get('downgrade_reasons', [])
-        if downgrade_reasons:
-            print(f"   Reasons: {', '.join(downgrade_reasons)}")
+        warnings = uncertainty_result.get("warnings", [])
+        print(f"⚠️  Phase 5: Confidence adjusted to {confidence}")
+        if warnings:
+            print(f"   Warnings: {', '.join(warnings)}")
         crosslingual = uncertainty_result.get('uncertainty_result', {}).get('is_crosslingual', False)
         if crosslingual:
             print(f"   Note: Cross-lingual scenario detected (lower similarity threshold used)")
@@ -784,9 +882,10 @@ def run_doclingo(
         "routing_used": True,
         "retrieval_method": "FAISS Semantic Search",
         "avg_similarity_score": f"{avg_similarity:.2%}",
+        "grounding_score": f"{grounding_score:.4f}" if grounding_score is not None else None,
         "chunks_metadata": chunks_metadata,
         # Phase 4: Additional metadata for feedback logging
-        "base_confidence": base_confidence,
+        "base_confidence": base_confidence_value,
         "calibrated_confidence_info": calibrated_confidence.get("explanation", ""),
         "optimization_applied": optimized_params.get("feedback_samples", 0) > 0,
         "optimization_explanation": optimized_params.get("explanation", ""),
@@ -872,8 +971,8 @@ def route_query(query, pages, document_info=None):
         print(f"⚠️  Query routing failed: {str(e)}")
         return None
 
-
-# Example usage
+'''
+Example usage
 if __name__ == "__main__":
     # Test with a sample PDF
     pdf_path = "sample_document.pdf"
@@ -900,3 +999,5 @@ if __name__ == "__main__":
         
         print(f"\n💬 Answer: {result['answer']}")
         print()
+
+        '''

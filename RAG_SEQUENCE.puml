@@ -1,0 +1,87 @@
+@startuml RAG Pipeline Sequence Diagram
+!theme plain
+skinparam backgroundColor white
+skinparam sequenceArrowThickness 2
+skinparam roundcorner 10
+skinparam maxMessageSize 60
+skinparam defaultFontSize 11
+skinparam defaultFontName Arial
+
+title DocLingo RAG Pipeline - Sequence Diagram
+
+actor User
+participant "PDF Loader" as Loader
+participant "Text Extractor" as Extractor
+participant "Document Chunker" as Chunker
+participant "Embedding Manager" as EmbeddingMgr
+participant "FAISS Index" as FAISS
+participant "FAISS Retriever" as Retriever
+participant "Answer Generator" as Generator
+participant "OpenAI API" as OpenAI
+
+== Document Indexing Phase ==
+
+User -> Loader: Upload PDF Document
+Loader -> Extractor: Extract Text from PDF
+Extractor -> Chunker: Pages (List[str])
+Chunker -> Chunker: Split into chunks\n(500 chars, 50 overlap)
+Chunker -> Chunker: Add metadata\n(page numbers, positions)
+
+Chunker -> EmbeddingMgr: Chunks (List[str])
+activate EmbeddingMgr
+EmbeddingMgr -> OpenAI: Batch Embedding Request\n(text-embedding-3-small)
+OpenAI -> EmbeddingMgr: Embeddings (numpy array)
+deactivate EmbeddingMgr
+
+EmbeddingMgr -> FAISS: Chunks + Embeddings + Metadata
+activate FAISS
+FAISS -> FAISS: Normalize embeddings
+FAISS -> FAISS: Add to IndexFlatL2
+FAISS -> FAISS: Store chunks & metadata
+deactivate FAISS
+
+FAISS --> User: Index Ready
+
+== Query Processing Phase ==
+
+User -> Retriever: Submit Query
+activate Retriever
+
+Retriever -> EmbeddingMgr: Generate Query Embedding
+activate EmbeddingMgr
+EmbeddingMgr -> OpenAI: Embed Query Text
+OpenAI -> EmbeddingMgr: Query Embedding Vector
+deactivate EmbeddingMgr
+
+Retriever -> FAISS: Search Similar Vectors\n(query_embedding, k=5)
+activate FAISS
+FAISS -> FAISS: Calculate L2 distances
+FAISS -> FAISS: Find Top-K nearest neighbors
+FAISS -> Retriever: Results with scores & metadata
+deactivate FAISS
+
+Retriever -> Retriever: Filter by score threshold\n(optional)
+Retriever -> Retriever: Apply metadata filters\n(optional)
+Retriever -> Retriever: Extract chunks + metadata
+
+Retriever -> Generator: Retrieved Chunks\n+ Query + Answer Language
+activate Generator
+
+Generator -> Generator: Normalize chunks format
+Generator -> Generator: Format context with citations
+Generator -> Generator: Build system prompt\n(language-aware, grounded)
+Generator -> Generator: Build user prompt\n(query + context)
+
+Generator -> OpenAI: Chat Completion Request\n(GPT-4o-mini)
+activate OpenAI
+OpenAI -> Generator: Generated Answer\n(grounded in context)
+deactivate OpenAI
+
+Generator -> Generator: Validate answer grounding
+Generator --> User: Final Answer\n(with citations)
+deactivate Generator
+deactivate Retriever
+
+@enduml
+
+

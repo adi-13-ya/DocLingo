@@ -1327,7 +1327,7 @@ class IntentClassifier:
 
         for intent, rules_list in self.patterns.items():
             print("\n" + "-" * 40)
-            print(f"Checking intent: {intent}")
+            #print(f"Checking intent: {intent}")
 
             score = 0
             negative_match = False
@@ -1341,8 +1341,6 @@ class IntentClassifier:
                 if not isinstance(rules, dict):
                     print(f"❌ Skipping invalid rules entry: {rules}")
                     continue
-
-                print(" Rules:", rules)
 
                 # 1️⃣ Check negative patterns
                 for neg_pattern in rules.get("negative_patterns", []):
@@ -1390,13 +1388,13 @@ class IntentClassifier:
         print("⚠️ No intent matched — returning GENERAL_CONTENT")
         return QueryIntent.GENERAL_CONTENT
         
-        def classify_with_confidence(self, query: str) -> Dict[str, any]:
-            """
-            Classify query and return confidence score.
-            
-            Args:
-                query: The user query string
-            
+    def classify_with_confidence(self, query: str) -> Dict[str, any]:
+        """
+        Classify query and return confidence score.
+        
+        Args:
+            query: The user query string
+        
         Returns:
             Dict with intent, confidence, and top alternatives
         """

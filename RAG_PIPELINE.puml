@@ -1,0 +1,64 @@
+@startuml RAG Pipeline
+!theme plain
+skinparam backgroundColor white
+skinparam defaultFontSize 12
+skinparam defaultFontName Arial
+skinparam roundcorner 10
+skinparam shadowing false
+
+title DocLingo RAG (Retrieval Augmented Generation) Pipeline
+
+|#LightGray|Document Processing|
+start
+:Load PDF Document;
+:Extract Text Pages;
+:Chunk Document\n(chunk_size=500, overlap=50);
+note right: Creates text chunks\nwith metadata\n(page numbers, positions)
+
+|#LightGray|Embedding Generation|
+:Generate Embeddings\nfor all chunks\n(OpenAI text-embedding-3-small);
+note right: Converts text chunks\nto vector embeddings\n(dimension: 1536)
+
+|#LightGray|FAISS Indexing|
+:Normalize Embeddings\n(for cosine similarity);
+:Add to FAISS Index\n(IndexFlatL2);
+:Store Chunks + Metadata;
+note right: FAISS Index stores:\n- Vector embeddings\n- Text chunks\n- Metadata (page, position)
+
+|#LightGray|Index Ready|
+stop
+
+|#LightGray|Query Processing|
+start
+:User Query Input;
+:Generate Query Embedding\n(OpenAI text-embedding-3-small);
+note right: Query converted to\nsame vector space\nas document chunks
+
+|#LightGray|Semantic Retrieval|
+:Search FAISS Index\n(k nearest neighbors);
+:Calculate Similarity Scores\n(L2 distance → similarity);
+:Filter by Score Threshold\n(optional);
+:Apply Metadata Filters\n(optional);
+:Retrieve Top-K Chunks\nwith metadata;
+note right: Returns:\n- Chunk text\n- Page numbers\n- Similarity scores\n- Metadata
+
+|#LightGray|Context Preparation|
+:Normalize Retrieved Chunks;
+:Format Context with Metadata\n(include page citations);
+:Build Context String;
+note right: Context includes:\n- Retrieved chunks\n- Page references\n- Similarity info
+
+|#LightGray|Answer Generation|
+:Build System Prompt\n(language-aware, grounded);
+:Build User Prompt\n(query + context);
+:Call OpenAI API\n(GPT-4o-mini);
+:Generate Answer\n(strictly from context);
+note right: LLM generates answer\nusing only provided\ncontext chunks
+
+|#LightGray|Output|
+:Return Generated Answer;
+stop
+
+@enduml
+
+

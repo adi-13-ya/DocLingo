@@ -1,0 +1,165 @@
+# =============================================================================
+# Environment & Secrets
+# =============================================================================
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# =============================================================================
+# Python
+# =============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+parts/
+var/
+sdist/
+develop-eggs/
+.installed.cfg
+lib/
+lib64/
+MANIFEST
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env/
+ENV/
+env.bak/
+venv.bak/
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+htmlcov/
+
+# mypy / type checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+
+# =============================================================================
+# Jupyter / IPython
+# =============================================================================
+.ipynb_checkpoints/
+*.ipynb
+
+# =============================================================================
+# Vector Stores & Databases
+# =============================================================================
+# ChromaDB persistent storage
+chroma_db/
+chromadb/
+.chroma/
+
+# FAISS index files
+*.faiss
+*.index
+faiss_index/
+
+# SQLite
+*.db
+*.sqlite
+*.sqlite3
+
+# =============================================================================
+# ML / AI Artifacts
+# =============================================================================
+# Model weights & checkpoints
+*.pkl
+*.pickle
+*.pt
+*.pth
+*.bin
+*.onnx
+*.h5
+*.hdf5
+models/
+checkpoints/
+
+# Embeddings cache
+embeddings_cache/
+.embeddings/
+
+# =============================================================================
+# Application Data & Logs
+# =============================================================================
+audit_log.jsonl
+feedback_log.json
+*.log
+logs/
+*.jsonl
+
+# Uploaded / processed documents
+uploads/
+processed_docs/
+temp_docs/
+
+# =============================================================================
+# macOS
+# =============================================================================
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# =============================================================================
+# IDEs & Editors
+# =============================================================================
+# VSCode
+.vscode/
+*.code-workspace
+
+# JetBrains / PyCharm
+.idea/
+*.iml
+*.iws
+
+# Cursor
+.cursor/
+
+# Vim / Neovim
+*.swp
+*.swo
+*~
+
+# =============================================================================
+# Misc
+# =============================================================================
+*.bak
+*.tmp
+*.orig
+.cache/
+tmp/

@@ -89,7 +89,9 @@ def generate_answer(
     context_text = _format_context_with_metadata(chunks_with_metadata, include_citations, remove_technical=True)
 
     # Change 2: Explicit language instruction and remove technical terms
+    print(f"Answer language: {answer_language}")
     output_lang = answer_language or "en"
+    print(f"Output language: {output_lang}")
     lang_name = _get_language_name(output_lang)
     
     system_prompt = (
