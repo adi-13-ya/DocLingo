@@ -4,65 +4,63 @@ Specialized LLM engine for comparison and contrast queries.
 """
 
 from typing import List, Optional
-import os
-from openai import OpenAI
+from utils.llm_client import chat_completion
+from utils.language_utils import get_language_name
 
 
 class ComparisonEngine:
     """
     Handles comparison queries - analyzing similarities and differences.
     """
-    
+
     def __init__(self, api_key: Optional[str] = None):
-        """Initialize OpenAI client."""
-        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
-        if not self.api_key:
-            raise ValueError("OpenAI API key required for ComparisonEngine")
-        
-        self.client = OpenAI(api_key=self.api_key)
-        self.model = "gpt-4o-mini"
-    
-    def process(self, query: str, pages: List[str], relevant_chunks: Optional[List[str]] = None) -> str:
+        """Initialize ComparisonEngine. api_key kept for backward compatibility."""
+        pass
+
+    def process(self, query: str, pages: List[str], relevant_chunks: Optional[List[str]] = None,
+                answer_language: Optional[str] = None) -> str:
         """
         Process comparison queries with specialized prompting.
-        
+
         Args:
             query: User query
             pages: Document pages
             relevant_chunks: Pre-retrieved relevant chunks
-            
+            answer_language: Target language for the answer
+
         Returns:
             Comparison answer
         """
-        # Use chunks or full document
         if relevant_chunks:
             context = "\n\n".join(relevant_chunks)
         else:
             context = "\n\n".join(pages)
-        
-        system_prompt = self._build_system_prompt()
-        user_prompt = self._build_user_prompt(query, context)
-        
+
+        output_lang = answer_language or "en"
+        system_prompt = self._build_system_prompt(output_lang)
+        user_prompt = self._build_user_prompt(query, context, output_lang)
+
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
+            response = chat_completion(
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
                 temperature=0.3,
-                max_tokens=700
+                max_tokens=700,
             )
-            
+
             return response.choices[0].message.content
-        
+
         except Exception as e:
             return f"Error generating comparison: {str(e)}"
-    
-    def _build_system_prompt(self) -> str:
+
+    def _build_system_prompt(self, output_lang: str = "en") -> str:
         """Build comparison-specific system prompt"""
-        
-        return """You are an expert at comparative analysis. Your role is to identify, analyze, and clearly articulate similarities and differences between items, concepts, or approaches mentioned in documents.
+        lang_name = get_language_name(output_lang)
+
+        return f"""You are an expert at comparative analysis. You MUST answer in {lang_name} ({output_lang}).
+Your role is to identify, analyze, and clearly articulate similarities and differences between items, concepts, or approaches mentioned in documents.
 
 CORE RESPONSIBILITIES:
 1. Identify what is being compared
@@ -97,13 +95,14 @@ FORMAT GUIDELINES:
 - Use bullet points or tables when appropriate
 - Be concise but comprehensive
 - Ensure fair representation of both/all items"""
-    
-    def _build_user_prompt(self, query: str, context: str) -> str:
+
+    def _build_user_prompt(self, query: str, context: str, output_lang: str = "en") -> str:
         """Build user prompt with context"""
-        
+        lang_name = get_language_name(output_lang)
+
         return f"""Document Content:
 {context}
 
 User Question: {query}
 
-Please provide a clear comparison based on the document content. Include both similarities and differences, organized in a structured format."""
+Please provide a clear comparison in {lang_name} based on the document content. Include both similarities and differences, organized in a structured format."""

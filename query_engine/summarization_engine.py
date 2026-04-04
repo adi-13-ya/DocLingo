@@ -5,8 +5,8 @@ FAISS-enhanced with multilingual support.
 """
 
 from typing import List, Optional, Dict, Union
-import os
-from openai import OpenAI
+from utils.llm_client import chat_completion
+from utils.language_utils import get_language_name
 
 
 class SummarizationEngine:
@@ -17,13 +17,7 @@ class SummarizationEngine:
     """
     
     def __init__(self, api_key: Optional[str] = None, retriever=None):
-        """Initialize OpenAI client and optional FAISS retriever."""
-        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
-        if not self.api_key:
-            raise ValueError("OpenAI API key required for SummarizationEngine")
-        
-        self.client = OpenAI(api_key=self.api_key)
-        self.model = "gpt-4o-mini"
+        """Initialize SummarizationEngine. api_key kept for backward compatibility."""
         self.retriever = retriever  # FAISS retriever (optional)
     
     def process(
@@ -70,32 +64,23 @@ class SummarizationEngine:
         user_prompt = self._build_user_prompt(query, context, summary_type, output_lang, lang_name)
         
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
+            response = chat_completion(
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.4,  # Slightly higher for natural summaries
-                max_tokens=800
+                temperature=0.4,
+                max_tokens=800,
             )
-            
+
             return response.choices[0].message.content
-        
+
         except Exception as e:
             return f"Error generating summary: {str(e)}"
     
     def _get_language_name(self, lang_code: str) -> str:
         """Get human-readable language name from language code."""
-        lang_names = {
-            "en": "English", "es": "Spanish", "fr": "French", "de": "German",
-            "it": "Italian", "pt": "Portuguese", "ru": "Russian", "zh": "Chinese",
-            "ja": "Japanese", "ko": "Korean", "ar": "Arabic",
-            "hi": "Hindi", "ml": "Malayalam", "ta": "Tamil", "te": "Telugu",
-            "kn": "Kannada", "mr": "Marathi", "ur": "Urdu", "bn": "Bengali",
-            "gu": "Gujarati", "pa": "Punjabi", "or": "Odia", "as": "Assamese",
-        }
-        return lang_names.get(lang_code, lang_code.upper())
+        return get_language_name(lang_code)
     
     def _detect_summary_type(self, query: str) -> str:
         """Detect what kind of summary is requested (works with multilingual queries)"""

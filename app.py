@@ -502,11 +502,13 @@ Premium interface with animations and modern styling.
 import streamlit as st
 import hashlib
 import time
+import os
 from typing import Optional, Dict, Any
 from io import BytesIO
 
 from main import run_doclingo, DocLingoSystem
 from feedback_manager.feedback_logger import FeedbackLogger
+from utils.llm_client import get_current_chat_model, set_current_chat_model
 
 # ============================================================================
 # PAGE CONFIGURATION
@@ -1180,7 +1182,72 @@ def main():
         st.stop()
     
     st.divider()
-    
+
+    # ========================================================================
+    # MODEL SETTINGS SECTION (Collapsible)
+    # ========================================================================
+    with st.expander("🤖 Model Settings", expanded=False):
+        st.caption("Choose your LLM provider and model. Default: OpenAI gpt-4o-mini.")
+
+        col_model, col_key = st.columns([2, 2])
+
+        with col_model:
+            # Preset model options
+            model_options = {
+                "gpt-4o-mini (OpenAI)": "gpt-4o-mini",
+                "gpt-4o (OpenAI)": "gpt-4o",
+                "gemini/gemini-2.0-flash (Google)": "gemini/gemini-2.0-flash",
+                "ollama/llama3 (Local)": "ollama/llama3",
+                "Custom": "custom",
+            }
+            selected_label = st.selectbox(
+                "LLM Model",
+                options=list(model_options.keys()),
+                key="model_select",
+                help="Select the LLM model/provider to use for answering questions",
+            )
+            selected_model = model_options[selected_label]
+
+            if selected_model == "custom":
+                custom_model = st.text_input(
+                    "Custom model name",
+                    placeholder="e.g., ollama/mistral, anthropic/claude-3-haiku",
+                    key="custom_model_input",
+                )
+                if custom_model:
+                    selected_model = custom_model
+
+            # Apply model selection
+            if selected_model != "custom":
+                set_current_chat_model(selected_model)
+
+        with col_key:
+            # Provider API key input
+            provider_key_name = "OPENAI_API_KEY"
+            if "gemini" in selected_model:
+                provider_key_name = "GEMINI_API_KEY"
+            elif "anthropic" in selected_model or "claude" in selected_model:
+                provider_key_name = "ANTHROPIC_API_KEY"
+            elif "ollama" in selected_model:
+                provider_key_name = ""
+
+            if provider_key_name:
+                api_key_input = st.text_input(
+                    f"{provider_key_name}",
+                    type="password",
+                    value=os.getenv(provider_key_name, ""),
+                    key="api_key_input",
+                    help=f"Enter your API key for the selected provider (or set {provider_key_name} in .env)",
+                )
+                if api_key_input:
+                    os.environ[provider_key_name] = api_key_input
+            else:
+                st.info("No API key needed for local Ollama models.")
+
+        st.caption(f"Active model: **{get_current_chat_model()}**")
+
+    st.divider()
+
     # ========================================================================
     # LANGUAGE SETTINGS SECTION (Collapsible)
     # ========================================================================
@@ -1287,8 +1354,8 @@ def main():
     confidence = result.get("confidence", "Unknown")
     render_confidence_badge(confidence)
     
-    # Processing time (subtle)
-    st.caption(f"⏱️ Processed in {processing_time:.2f} seconds")
+    # Processing time and model info (subtle)
+    st.caption(f"⏱️ Processed in {processing_time:.2f} seconds | Model: {get_current_chat_model()}")
     
     st.divider()
     

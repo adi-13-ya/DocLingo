@@ -3,52 +3,9 @@ Enhanced Answer Generator with FAISS Integration
 Generates grounded answers using LLM with semantic search context
 """
 
-import os
-from openai import OpenAI
-from dotenv import load_dotenv
 from typing import List, Dict, Union, Optional
-
-
-def _get_language_name(lang_code: str) -> str:
-    """
-    Get human-readable language name from language code.
-    
-    Args:
-        lang_code: Language code (e.g., "en", "hi", "ml")
-        
-    Returns:
-        Language name (e.g., "English", "Hindi", "Malayalam")
-    """
-    lang_names = {
-        "en": "English",
-        "es": "Spanish",
-        "fr": "French",
-        "de": "German",
-        "it": "Italian",
-        "pt": "Portuguese",
-        "ru": "Russian",
-        "zh": "Chinese",
-        "ja": "Japanese",
-        "ko": "Korean",
-        "ar": "Arabic",
-        "hi": "Hindi",
-        "ml": "Malayalam",
-        "ta": "Tamil",
-        "te": "Telugu",
-        "kn": "Kannada",
-        "mr": "Marathi",
-        "ur": "Urdu",
-        "bn": "Bengali",
-        "gu": "Gujarati",
-        "pa": "Punjabi",
-        "or": "Odia",
-        "as": "Assamese",
-    }
-    return lang_names.get(lang_code, lang_code.upper())
-
-load_dotenv()
-
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+from utils.llm_client import chat_completion
+from utils.language_utils import get_language_name
 
 
 def generate_answer(
@@ -92,7 +49,7 @@ def generate_answer(
     print(f"Answer language: {answer_language}")
     output_lang = answer_language or "en"
     print(f"Output language: {output_lang}")
-    lang_name = _get_language_name(output_lang)
+    lang_name = get_language_name(output_lang)
     
     system_prompt = (
         f"You are a document-based assistant. You MUST answer the question in {lang_name} ({output_lang}).\n"
@@ -120,17 +77,16 @@ Please answer the question in {lang_name} ({output_lang}) using only the informa
 """
 
     try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
+        response = chat_completion(
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            temperature=temperature
+            temperature=temperature,
         )
 
         return response.choices[0].message.content.strip()
-    
+
     except Exception as e:
         print(f"Error generating answer: {e}")
         return f"Error generating answer: {str(e)}"
@@ -334,20 +290,19 @@ Question:
 """
 
     try:
-        stream = client.chat.completions.create(
-            model="gpt-4o-mini",
+        stream = chat_completion(
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.0,
-            stream=True
+            stream=True,
         )
 
         for chunk in stream:
             if chunk.choices[0].delta.content:
                 yield chunk.choices[0].delta.content
-    
+
     except Exception as e:
         yield f"Error generating answer: {str(e)}"
 

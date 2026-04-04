@@ -4,33 +4,30 @@ Specialized LLM engine for how-to and process extraction queries.
 """
 
 from typing import List, Optional
-import os
-from openai import OpenAI
+from utils.llm_client import chat_completion
+from utils.language_utils import get_language_name
 
 
 class ProceduralEngine:
     """
     Handles procedural queries - extracting and explaining processes, steps, and methods.
     """
-    
+
     def __init__(self, api_key: Optional[str] = None):
-        """Initialize OpenAI client."""
-        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
-        if not self.api_key:
-            raise ValueError("OpenAI API key required for ProceduralEngine")
-        
-        self.client = OpenAI(api_key=self.api_key)
-        self.model = "gpt-4o-mini"
-    
-    def process(self, query: str, pages: List[str], relevant_chunks: Optional[List[str]] = None) -> str:
+        """Initialize ProceduralEngine. api_key kept for backward compatibility."""
+        pass
+
+    def process(self, query: str, pages: List[str], relevant_chunks: Optional[List[str]] = None,
+                answer_language: Optional[str] = None) -> str:
         """
         Process procedural queries with specialized prompting.
-        
+
         Args:
             query: User query
             pages: Document pages
             relevant_chunks: Pre-retrieved relevant chunks
-            
+            answer_language: Target language for the answer
+
         Returns:
             Procedural answer
         """
@@ -38,49 +35,49 @@ class ProceduralEngine:
             context = "\n\n".join(relevant_chunks)
         else:
             context = self._find_relevant_context(query, pages)
-        
-        system_prompt = self._build_system_prompt()
-        user_prompt = self._build_user_prompt(query, context)
-        
+
+        output_lang = answer_language or "en"
+        system_prompt = self._build_system_prompt(output_lang)
+        user_prompt = self._build_user_prompt(query, context, output_lang)
+
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
+            response = chat_completion(
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.2,  # Very low for accurate step reproduction
-                max_tokens=700
+                temperature=0.2,
+                max_tokens=700,
             )
-            
+
             return response.choices[0].message.content
-        
+
         except Exception as e:
             return f"Error extracting procedure: {str(e)}"
-    
+
     def _find_relevant_context(self, query: str, pages: List[str], top_k: int = 4) -> str:
         """Find context with procedural information"""
         query_words = set(query.lower().split())
         page_scores = []
-        
+
         for page in pages:
             page_words = set(page.lower().split())
             overlap = len(query_words & page_words)
-            
-            # Boost pages with procedural indicators
+
             if any(word in page.lower() for word in ["step", "process", "procedure", "method", "how to"]):
                 overlap += 5
-            
+
             if overlap > 0:
                 page_scores.append((overlap, page))
-        
+
         page_scores.sort(reverse=True, key=lambda x: x[0])
         return "\n\n".join([page for _, page in page_scores[:top_k]])
-    
-    def _build_system_prompt(self) -> str:
+
+    def _build_system_prompt(self, output_lang: str = "en") -> str:
         """Build procedural-specific system prompt"""
-        
-        return """You are an expert at extracting and presenting procedures, processes, and step-by-step instructions from documents. Your role is to clearly communicate HOW things are done or should be done.
+        lang_name = get_language_name(output_lang)
+
+        return f"""You are an expert at extracting and presenting procedures, processes, and step-by-step instructions from documents. You MUST answer in {lang_name} ({output_lang}).
 
 CORE RESPONSIBILITIES:
 1. Extract step-by-step procedures from documents
@@ -119,27 +116,21 @@ PROCESS EXTRACTION GUIDELINES:
 - **Steps**: The actual procedure
 - **Notes/Warnings**: Important caveats mentioned
 - **Expected Outcome**: What should result from following these steps?
-- **Troubleshooting**: Any problems or solutions mentioned?
 
 **Formatting:**
 - Use numbered lists for sequential steps
 - Use bullet points for items within steps
 - Use bold for warnings or critical information
 - Keep each step concise but complete
-- Group related steps when appropriate
+- Group related steps when appropriate"""
 
-**Clarity:**
-- Define technical terms if explained in the document
-- Specify quantities, timings, or measurements exactly as stated
-- Note optional vs. required steps
-- Indicate decision points clearly"""
-    
-    def _build_user_prompt(self, query: str, context: str) -> str:
+    def _build_user_prompt(self, query: str, context: str, output_lang: str = "en") -> str:
         """Build user prompt with context"""
-        
+        lang_name = get_language_name(output_lang)
+
         return f"""Document Content:
 {context}
 
 User Question: {query}
 
-Please extract and present the procedure, process, or steps described in the document. Format as a clear, sequential guide with numbered steps."""
+Please extract and present the procedure, process, or steps in {lang_name} as described in the document. Format as a clear, sequential guide with numbered steps."""

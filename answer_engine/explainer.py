@@ -1,10 +1,5 @@
-import os
-from openai import OpenAI
-from dotenv import load_dotenv
+from utils.llm_client import chat_completion
 from language_manager.translation_manager import translate_text
-
-load_dotenv()
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
 def generate_explanation(chunks, translation_path, query, query_language="en"):
@@ -71,13 +66,12 @@ Explain briefly why these sections were selected to answer the question.
     # -----------------------------
     # 4. LLM call (controlled)
     # -----------------------------
-    response = client.chat.completions.create(
-        model="gpt-4.1-mini",
+    response = chat_completion(
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ],
-        temperature=0.2
+        temperature=0.2,
     )
 
     explanation_text_en = response.choices[0].message.content.strip()

@@ -4,33 +4,30 @@ Specialized LLM engine for context and background queries.
 """
 
 from typing import List, Optional
-import os
-from openai import OpenAI
+from utils.llm_client import chat_completion
+from utils.language_utils import get_language_name
 
 
 class ContextualEngine:
     """
     Handles contextual queries - background, setting, circumstances, and situational context.
     """
-    
+
     def __init__(self, api_key: Optional[str] = None):
-        """Initialize OpenAI client."""
-        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
-        if not self.api_key:
-            raise ValueError("OpenAI API key required for ContextualEngine")
-        
-        self.client = OpenAI(api_key=self.api_key)
-        self.model = "gpt-4o-mini"
-    
-    def process(self, query: str, pages: List[str], relevant_chunks: Optional[List[str]] = None) -> str:
+        """Initialize ContextualEngine. api_key kept for backward compatibility."""
+        pass
+
+    def process(self, query: str, pages: List[str], relevant_chunks: Optional[List[str]] = None,
+                answer_language: Optional[str] = None) -> str:
         """
         Process contextual queries with specialized prompting.
-        
+
         Args:
             query: User query
             pages: Document pages
             relevant_chunks: Pre-retrieved relevant chunks
-            
+            answer_language: Target language for the answer
+
         Returns:
             Contextual answer
         """
@@ -38,30 +35,32 @@ class ContextualEngine:
             context = "\n\n".join(relevant_chunks)
         else:
             context = "\n\n".join(pages)
-        
-        system_prompt = self._build_system_prompt()
-        user_prompt = self._build_user_prompt(query, context)
-        
+
+        output_lang = answer_language or "en"
+        system_prompt = self._build_system_prompt(output_lang)
+        user_prompt = self._build_user_prompt(query, context, output_lang)
+
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
+            response = chat_completion(
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
                 temperature=0.4,
-                max_tokens=650
+                max_tokens=650,
             )
-            
+
             return response.choices[0].message.content
-        
+
         except Exception as e:
             return f"Error providing context: {str(e)}"
-    
-    def _build_system_prompt(self) -> str:
+
+    def _build_system_prompt(self, output_lang: str = "en") -> str:
         """Build context-specific system prompt"""
-        
-        return """You are an expert at extracting and explaining contextual information from documents. Your role is to provide background, setting, circumstances, and situational context that helps understand the content.
+        lang_name = get_language_name(output_lang)
+
+        return f"""You are an expert at extracting and explaining contextual information from documents. You MUST answer in {lang_name} ({output_lang}).
+Your role is to provide background, setting, circumstances, and situational context that helps understand the content.
 
 CORE RESPONSIBILITIES:
 1. Extract background information provided in the document
@@ -88,7 +87,6 @@ TYPES OF CONTEXT TO IDENTIFY:
 - When was this written/published?
 - What time period does it discuss?
 - What events preceded or influenced this?
-- What was happening at the time?
 
 **Cultural/Social Context:**
 - What cultural setting or norms?
@@ -98,17 +96,11 @@ TYPES OF CONTEXT TO IDENTIFY:
 **Situational Context:**
 - What problem or situation prompted this?
 - What circumstances led to this?
-- What was the state of affairs?
 
 **Purpose/Framework Context:**
 - Why was this created?
 - What perspective or framework is used?
 - What assumptions underlie the content?
-
-**Institutional/Organizational Context:**
-- What organization or entity is involved?
-- What role or authority do they have?
-- What are their goals or mandate?
 
 RESPONSE STRUCTURE:
 1. **Primary Context**: The main situational or historical setting
@@ -116,21 +108,15 @@ RESPONSE STRUCTURE:
 3. **Circumstances**: Conditions or factors at play
 4. **Framework**: The perspective or approach being used
 5. **Intended Audience**: Who this is for (if indicated)
-6. **Relevance**: Why this context matters for understanding the content
+6. **Relevance**: Why this context matters for understanding the content"""
 
-CLARITY GUIDELINES:
-- Start with the most important context
-- Connect context to the main content
-- Explain why the context matters
-- Note any context the document assumes but doesn't explain
-- If the document provides minimal context, acknowledge this"""
-    
-    def _build_user_prompt(self, query: str, context: str) -> str:
+    def _build_user_prompt(self, query: str, context: str, output_lang: str = "en") -> str:
         """Build user prompt with context"""
-        
+        lang_name = get_language_name(output_lang)
+
         return f"""Document Content:
 {context}
 
 User Question: {query}
 
-Please provide the contextual information and background based on the document content. Explain the setting, circumstances, and relevant context that helps understand this document."""
+Please provide the contextual information and background in {lang_name} based on the document content. Explain the setting, circumstances, and relevant context that helps understand this document."""
