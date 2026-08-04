@@ -163,3 +163,6 @@ Icon
 *.orig
 .cache/
 tmp/
+filestruct.txt
+patch.py
+working.md
